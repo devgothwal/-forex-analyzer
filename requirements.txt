@@ -1,15 +1,6 @@
-# Minimal requirements for initial deployment
-fastapi==0.104.1
-uvicorn[standard]==0.24.0
-pydantic==2.5.0
-
-# Basic data processing (pre-compiled wheels available)
-numpy
-pandas
+# Ultra-minimal requirements for deployment
+fastapi>=0.100.0
+uvicorn[standard]>=0.20.0
 python-multipart
-
-# Configuration
-python-dotenv==1.0.0
-
-# File processing
-aiofiles==23.2.1
+aiofiles
+python-dotenv
