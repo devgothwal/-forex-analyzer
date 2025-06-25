@@ -1,0 +1,59 @@
+# Dependencies
+node_modules/
+backend/venv/
+backend/__pycache__/
+frontend/build/
+frontend/dist/
+
+# Environment files
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+logs/
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Cache
+.cache/
+cache/
+.pytest_cache/
+.coverage
+.nyc_output
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Uploads and temp files
+uploads/
+temp/
+*.tmp
+
+# Model files (too large for git)
+models/*.pkl
+models/*.joblib
+models/*.h5
+
+# Docker
+.dockerignore
+
+# Testing
+coverage/
+test-results/

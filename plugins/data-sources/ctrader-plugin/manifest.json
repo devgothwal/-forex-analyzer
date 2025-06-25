@@ -1,0 +1,14 @@
+{
+  "name": "ctrader_parser",
+  "version": "1.0.0", 
+  "description": "cTrader trading platform data parser plugin",
+  "author": "Forex Analyzer Team",
+  "api_version": "1.0",
+  "dependencies": [
+    "pandas>=1.5.0"
+  ],
+  "permissions": [
+    "data.read",
+    "data.write"
+  ]
+}

@@ -1,0 +1,15 @@
+{
+  "name": "risk_assessment",
+  "version": "1.0.0",
+  "description": "Advanced risk assessment plugin with VaR, CVaR, and Monte Carlo simulations",
+  "author": "Forex Analyzer Team",
+  "api_version": "1.0",
+  "dependencies": [
+    "numpy>=1.20.0",
+    "scipy>=1.7.0"
+  ],
+  "permissions": [
+    "data.read",
+    "analysis.write"
+  ]
+}

@@ -1,0 +1,108 @@
+# Docker Compose configuration for Forex Analyzer
+
+version: '3.8'
+
+services:
+  # Backend API service
+  backend:
+    build:
+      context: ../..
+      dockerfile: deployment/docker/Dockerfile.backend
+    container_name: forex-analyzer-backend
+    ports:
+      - "8000:8000"
+    environment:
+      - ENVIRONMENT=production
+      - DATABASE_URL=sqlite:///./forex_analyzer.db
+      - LOG_LEVEL=INFO
+      - ALLOWED_ORIGINS=http://localhost:3000,http://localhost
+    volumes:
+      - backend_data:/app/uploads
+      - backend_cache:/app/cache
+      - backend_models:/app/models
+      - backend_plugins:/app/plugins
+    networks:
+      - forex-analyzer-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Frontend web service
+  frontend:
+    build:
+      context: ../..
+      dockerfile: deployment/docker/Dockerfile.frontend
+    container_name: forex-analyzer-frontend
+    ports:
+      - "80:80"
+      - "443:443"
+    depends_on:
+      - backend
+    environment:
+      - REACT_APP_API_URL=http://localhost:8000/api/v1
+    networks:
+      - forex-analyzer-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Optional: Database service (for production use)
+  # Uncomment if using PostgreSQL instead of SQLite
+  # database:
+  #   image: postgres:15-alpine
+  #   container_name: forex-analyzer-db
+  #   environment:
+  #     POSTGRES_DB: forex_analyzer
+  #     POSTGRES_USER: forex_user
+  #     POSTGRES_PASSWORD: secure_password
+  #   volumes:
+  #     - postgres_data:/var/lib/postgresql/data
+  #   networks:
+  #     - forex-analyzer-network
+  #   restart: unless-stopped
+  #   healthcheck:
+  #     test: ["CMD-SHELL", "pg_isready -U forex_user -d forex_analyzer"]
+  #     interval: 30s
+  #     timeout: 10s
+  #     retries: 3
+
+  # Optional: Redis for caching (for production use)
+  # redis:
+  #   image: redis:7-alpine
+  #   container_name: forex-analyzer-redis
+  #   command: redis-server --appendonly yes
+  #   volumes:
+  #     - redis_data:/data
+  #   networks:
+  #     - forex-analyzer-network
+  #   restart: unless-stopped
+  #   healthcheck:
+  #     test: ["CMD", "redis-cli", "ping"]
+  #     interval: 30s
+  #     timeout: 10s
+  #     retries: 3
+
+volumes:
+  backend_data:
+    driver: local
+  backend_cache:
+    driver: local
+  backend_models:
+    driver: local
+  backend_plugins:
+    driver: local
+  # postgres_data:
+  #   driver: local
+  # redis_data:
+  #   driver: local
+
+networks:
+  forex-analyzer-network:
+    driver: bridge
