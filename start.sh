@@ -1,13 +1,16 @@
 #!/bin/bash
 
-# Simple start script for Render deployment
+# Render deployment start script
 echo "Starting Forex Analyzer Platform..."
-
-# Check if we're in the right directory
-pwd
+echo "Current directory: $(pwd)"
+echo "Contents:"
 ls -la
 
-# Start the backend server directly (skip frontend build for now)
-echo "Starting FastAPI server..."
+# Change to backend directory and start server
 cd backend
+echo "Now in backend directory: $(pwd)"
+echo "Backend contents:"
+ls -la
+
+# Start the FastAPI server
 python -m uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}
