@@ -3,15 +3,10 @@
 # Full-stack start script for Render deployment
 echo "Starting Forex Analyzer Platform..."
 
-# Install backend dependencies
-echo "Installing backend dependencies..."
-cd backend
-pip install -r requirements.txt
-
-# Install frontend dependencies and build
+# Frontend dependencies should already be installed by Render's Node.js detection
+# Build frontend
 echo "Building frontend..."
-cd ../frontend
-npm install
+cd frontend
 npm run build
 
 # Copy built frontend to backend static directory

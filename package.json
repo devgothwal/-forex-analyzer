@@ -1,0 +1,13 @@
+{
+  "name": "forex-analyzer",
+  "version": "1.0.0",
+  "description": "Complete forex trading analysis platform with modular plugin architecture",
+  "scripts": {
+    "install-frontend": "cd frontend && npm install",
+    "build-frontend": "cd frontend && npm run build",
+    "start": "cd backend && python -m uvicorn app.main:app --host 0.0.0.0 --port $PORT"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
