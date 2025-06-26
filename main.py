@@ -134,12 +134,23 @@ async def root():
                                     <p><strong>File Type:</strong> ${result.analysis.summary.file_type}</p>
                                     <p><strong>Valid Columns:</strong> ${result.analysis.summary.trading_insights.columns_detected} of ${result.analysis.columns}</p>
                                     <p><strong>Column Names:</strong> ${result.analysis.column_names.slice(0,5).join(', ')}${result.analysis.column_names.length > 5 ? '...' : ''}</p>
-                                    <p><strong>Trading Data Detected:</strong> 
+                                    <p><strong>Parsing:</strong> ${result.analysis.summary.parsing_info}</p>
+                                    <p><strong>Detected Columns:</strong> ${Object.keys(result.analysis.detected_columns).join(', ')}</p>
+                                    <p><strong>Trading Data:</strong> 
+                                        ${result.analysis.summary.trading_insights.has_ticket_column ? '✅ Ticket' : '❌ Ticket'} | 
                                         ${result.analysis.summary.trading_insights.has_profit_column ? '✅ Profit' : '❌ Profit'} | 
                                         ${result.analysis.summary.trading_insights.has_symbol_column ? '✅ Symbol' : '❌ Symbol'} | 
                                         ${result.analysis.summary.trading_insights.has_time_column ? '✅ Time' : '❌ Time'}
                                     </p>
-                                    <p><strong>Date Range:</strong> ${result.analysis.summary.date_range.start} to ${result.analysis.summary.date_range.end}</p>
+                                    ${result.analysis.summary.trading_stats && Object.keys(result.analysis.summary.trading_stats).length > 0 ? `
+                                    <div style="margin-top: 10px; padding: 10px; background: #e8f5e8; border-radius: 5px;">
+                                        <h5>📈 Trading Statistics:</h5>
+                                        <p><strong>Total P&L:</strong> $${result.analysis.summary.trading_stats.total_profit}</p>
+                                        <p><strong>Win Rate:</strong> ${result.analysis.summary.trading_stats.win_rate}% (${result.analysis.summary.trading_stats.winning_trades}W / ${result.analysis.summary.trading_stats.losing_trades}L)</p>
+                                        <p><strong>Avg Trade:</strong> $${result.analysis.summary.trading_stats.avg_profit}</p>
+                                        <p><strong>Best/Worst:</strong> $${result.analysis.summary.trading_stats.max_profit} / $${result.analysis.summary.trading_stats.max_loss}</p>
+                                    </div>
+                                    ` : ''}
                                 </div>
                             `;
                         } else {
@@ -225,50 +236,99 @@ async def upload_file(file: UploadFile = File(...)):
         # Read file content
         content = await file.read()
         
-        # Process based on file type with multiple header detection
+        # Advanced MT5/MT4 file parsing
+        def parse_mt5_file(content, is_csv=True):
+            """Parse MT5/MT4 trading history with intelligent header detection"""
+            for header_row in range(0, 5):  # Try first 5 rows as potential headers
+                try:
+                    if is_csv:
+                        test_df = pd.read_csv(io.StringIO(content.decode('utf-8')), header=header_row)
+                    else:
+                        test_df = pd.read_excel(io.BytesIO(content), header=header_row)
+                    
+                    # Check if this looks like a valid MT5/MT4 header
+                    columns_lower = [str(col).lower() for col in test_df.columns]
+                    mt5_indicators = ['ticket', 'time', 'type', 'size', 'symbol', 'price', 'profit', 'balance', 'comment']
+                    
+                    # Count how many MT5 indicators we find
+                    indicator_count = sum(1 for indicator in mt5_indicators 
+                                        if any(indicator in col for col in columns_lower))
+                    
+                    # If we find 3+ indicators and not too many unnamed columns, use this header
+                    unnamed_count = sum(1 for col in test_df.columns if str(col).startswith('Unnamed'))
+                    valid_ratio = (len(test_df.columns) - unnamed_count) / len(test_df.columns)
+                    
+                    if indicator_count >= 3 and valid_ratio > 0.5:
+                        return test_df, header_row
+                        
+                except Exception:
+                    continue
+            
+            # Fallback to default parsing
+            if is_csv:
+                return pd.read_csv(io.StringIO(content.decode('utf-8')), header=0), 0
+            else:
+                return pd.read_excel(io.BytesIO(content), header=0), 0
+        
+        # Process based on file type
         if file.filename.lower().endswith('.csv'):
-            # Try different header rows for CSV
-            try:
-                df = pd.read_csv(io.StringIO(content.decode('utf-8')), header=0)
-                if df.columns[0].startswith('Unnamed') or 'Trade History' in str(df.iloc[0, 0]):
-                    df = pd.read_csv(io.StringIO(content.decode('utf-8')), header=1)
-                if df.columns[0].startswith('Unnamed'):
-                    df = pd.read_csv(io.StringIO(content.decode('utf-8')), header=2)
-            except:
-                df = pd.read_csv(io.StringIO(content.decode('utf-8')), header=0)
+            df, header_used = parse_mt5_file(content, is_csv=True)
         else:
-            # Try different header rows for Excel
-            try:
-                df = pd.read_excel(io.BytesIO(content), header=0)
-                if df.columns[0].startswith('Unnamed') or 'Trade History' in str(df.iloc[0, 0]):
-                    df = pd.read_excel(io.BytesIO(content), header=1)
-                if df.columns[0].startswith('Unnamed'):
-                    df = pd.read_excel(io.BytesIO(content), header=2)
-            except:
-                df = pd.read_excel(io.BytesIO(content), header=0)
+            df, header_used = parse_mt5_file(content, is_csv=False)
         
         # Clean data for JSON serialization
         df_clean = df.fillna("N/A")  # Replace NaN with "N/A"
         
         # Enhanced analysis with MT5/MT4 specific insights
+        columns_lower = [str(col).lower() for col in df.columns]
+        
+        # Detect specific MT5/MT4 columns
+        detected_columns = {
+            'ticket': next((col for col in df.columns if 'ticket' in str(col).lower()), None),
+            'time': next((col for col in df.columns if 'time' in str(col).lower() or 'date' in str(col).lower()), None),
+            'symbol': next((col for col in df.columns if 'symbol' in str(col).lower()), None),
+            'type': next((col for col in df.columns if 'type' in str(col).lower()), None),
+            'size': next((col for col in df.columns if 'size' in str(col).lower() or 'volume' in str(col).lower()), None),
+            'price': next((col for col in df.columns if 'price' in str(col).lower()), None),
+            'profit': next((col for col in df.columns if 'profit' in str(col).lower()), None),
+            'balance': next((col for col in df.columns if 'balance' in str(col).lower()), None)
+        }
+        
+        # Calculate basic trading statistics if we have the right columns
+        trading_stats = {}
+        if detected_columns['profit'] and detected_columns['profit'] in df.columns:
+            profit_col = detected_columns['profit']
+            profit_data = pd.to_numeric(df[profit_col], errors='coerce').dropna()
+            if len(profit_data) > 0:
+                trading_stats = {
+                    'total_profit': round(profit_data.sum(), 2),
+                    'winning_trades': len(profit_data[profit_data > 0]),
+                    'losing_trades': len(profit_data[profit_data < 0]),
+                    'win_rate': round((len(profit_data[profit_data > 0]) / len(profit_data)) * 100, 1) if len(profit_data) > 0 else 0,
+                    'avg_profit': round(profit_data.mean(), 2),
+                    'max_profit': round(profit_data.max(), 2),
+                    'max_loss': round(profit_data.min(), 2)
+                }
+        
         analysis = {
             "filename": file.filename,
             "rows": len(df),
             "columns": len(df.columns),
+            "header_row_used": header_used,
             "column_names": df.columns.tolist(),
+            "detected_columns": {k: v for k, v in detected_columns.items() if v is not None},
             "data_preview": df_clean.head(3).to_dict('records') if len(df) > 0 else [],
             "summary": {
                 "total_records": len(df),
-                "file_type": "MT5/MT4 Trading Report" if any(col.lower() in ['ticket', 'time', 'type', 'size', 'symbol', 'price', 'profit'] for col in df.columns) else "Trading Data",
-                "date_range": {
-                    "start": str(df_clean.iloc[0, 0]) if len(df) > 0 else "N/A",
-                    "end": str(df_clean.iloc[-1, 0]) if len(df) > 0 else "N/A"
-                } if len(df) > 0 else {"start": "N/A", "end": "N/A"},
+                "file_type": "MT5/MT4 Trading Report" if len(detected_columns) >= 3 else "Trading Data",
+                "parsing_info": f"Header found at row {header_used}",
+                "trading_stats": trading_stats,
                 "trading_insights": {
-                    "has_profit_column": any('profit' in col.lower() for col in df.columns),
-                    "has_symbol_column": any('symbol' in col.lower() for col in df.columns),
-                    "has_time_column": any('time' in col.lower() for col in df.columns),
-                    "columns_detected": len([col for col in df.columns if not col.startswith('Unnamed')])
+                    "has_profit_column": detected_columns['profit'] is not None,
+                    "has_symbol_column": detected_columns['symbol'] is not None,
+                    "has_time_column": detected_columns['time'] is not None,
+                    "has_ticket_column": detected_columns['ticket'] is not None,
+                    "columns_detected": len([col for col in df.columns if not str(col).startswith('Unnamed')])
                 }
             }
         }
