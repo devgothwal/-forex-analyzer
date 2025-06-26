@@ -1,6 +1,6 @@
-# Ultra-minimal requirements for deployment
+# Requirements for file upload and analysis
 fastapi>=0.100.0
 uvicorn[standard]>=0.20.0
 python-multipart
-aiofiles
-python-dotenv
+pandas>=2.0.0
+openpyxl
