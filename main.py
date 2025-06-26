@@ -130,10 +130,15 @@ async def root():
                                 <div style="background: #f8f9fa; padding: 15px; border-radius: 5px; text-align: left;">
                                     <h4>📊 Analysis Results:</h4>
                                     <p><strong>File:</strong> ${result.analysis.filename}</p>
-                                    <p><strong>Total Rows:</strong> ${result.analysis.rows}</p>
-                                    <p><strong>Columns:</strong> ${result.analysis.columns}</p>
-                                    <p><strong>Column Names:</strong> ${result.analysis.column_names.join(', ')}</p>
-                                    <p><strong>Total Trades:</strong> ${result.analysis.summary.total_trades}</p>
+                                    <p><strong>Total Records:</strong> ${result.analysis.rows}</p>
+                                    <p><strong>File Type:</strong> ${result.analysis.summary.file_type}</p>
+                                    <p><strong>Valid Columns:</strong> ${result.analysis.summary.trading_insights.columns_detected} of ${result.analysis.columns}</p>
+                                    <p><strong>Column Names:</strong> ${result.analysis.column_names.slice(0,5).join(', ')}${result.analysis.column_names.length > 5 ? '...' : ''}</p>
+                                    <p><strong>Trading Data Detected:</strong> 
+                                        ${result.analysis.summary.trading_insights.has_profit_column ? '✅ Profit' : '❌ Profit'} | 
+                                        ${result.analysis.summary.trading_insights.has_symbol_column ? '✅ Symbol' : '❌ Symbol'} | 
+                                        ${result.analysis.summary.trading_insights.has_time_column ? '✅ Time' : '❌ Time'}
+                                    </p>
                                     <p><strong>Date Range:</strong> ${result.analysis.summary.date_range.start} to ${result.analysis.summary.date_range.end}</p>
                                 </div>
                             `;
@@ -220,28 +225,51 @@ async def upload_file(file: UploadFile = File(...)):
         # Read file content
         content = await file.read()
         
-        # Process based on file type
+        # Process based on file type with multiple header detection
         if file.filename.lower().endswith('.csv'):
-            df = pd.read_csv(io.StringIO(content.decode('utf-8')))
+            # Try different header rows for CSV
+            try:
+                df = pd.read_csv(io.StringIO(content.decode('utf-8')), header=0)
+                if df.columns[0].startswith('Unnamed') or 'Trade History' in str(df.iloc[0, 0]):
+                    df = pd.read_csv(io.StringIO(content.decode('utf-8')), header=1)
+                if df.columns[0].startswith('Unnamed'):
+                    df = pd.read_csv(io.StringIO(content.decode('utf-8')), header=2)
+            except:
+                df = pd.read_csv(io.StringIO(content.decode('utf-8')), header=0)
         else:
-            df = pd.read_excel(io.BytesIO(content))
+            # Try different header rows for Excel
+            try:
+                df = pd.read_excel(io.BytesIO(content), header=0)
+                if df.columns[0].startswith('Unnamed') or 'Trade History' in str(df.iloc[0, 0]):
+                    df = pd.read_excel(io.BytesIO(content), header=1)
+                if df.columns[0].startswith('Unnamed'):
+                    df = pd.read_excel(io.BytesIO(content), header=2)
+            except:
+                df = pd.read_excel(io.BytesIO(content), header=0)
         
         # Clean data for JSON serialization
         df_clean = df.fillna("N/A")  # Replace NaN with "N/A"
         
-        # Basic analysis
+        # Enhanced analysis with MT5/MT4 specific insights
         analysis = {
             "filename": file.filename,
             "rows": len(df),
             "columns": len(df.columns),
             "column_names": df.columns.tolist(),
-            "data_preview": df_clean.head(5).to_dict('records') if len(df) > 0 else [],
+            "data_preview": df_clean.head(3).to_dict('records') if len(df) > 0 else [],
             "summary": {
-                "total_trades": len(df),
+                "total_records": len(df),
+                "file_type": "MT5/MT4 Trading Report" if any(col.lower() in ['ticket', 'time', 'type', 'size', 'symbol', 'price', 'profit'] for col in df.columns) else "Trading Data",
                 "date_range": {
                     "start": str(df_clean.iloc[0, 0]) if len(df) > 0 else "N/A",
                     "end": str(df_clean.iloc[-1, 0]) if len(df) > 0 else "N/A"
-                } if len(df) > 0 else {"start": "N/A", "end": "N/A"}
+                } if len(df) > 0 else {"start": "N/A", "end": "N/A"},
+                "trading_insights": {
+                    "has_profit_column": any('profit' in col.lower() for col in df.columns),
+                    "has_symbol_column": any('symbol' in col.lower() for col in df.columns),
+                    "has_time_column": any('time' in col.lower() for col in df.columns),
+                    "columns_detected": len([col for col in df.columns if not col.startswith('Unnamed')])
+                }
             }
         }
         
