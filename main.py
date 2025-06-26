@@ -226,18 +226,21 @@ async def upload_file(file: UploadFile = File(...)):
         else:
             df = pd.read_excel(io.BytesIO(content))
         
+        # Clean data for JSON serialization
+        df_clean = df.fillna("N/A")  # Replace NaN with "N/A"
+        
         # Basic analysis
         analysis = {
             "filename": file.filename,
             "rows": len(df),
             "columns": len(df.columns),
             "column_names": df.columns.tolist(),
-            "data_preview": df.head(5).to_dict('records') if len(df) > 0 else [],
+            "data_preview": df_clean.head(5).to_dict('records') if len(df) > 0 else [],
             "summary": {
                 "total_trades": len(df),
                 "date_range": {
-                    "start": str(df.iloc[0, 0]) if len(df) > 0 else "N/A",
-                    "end": str(df.iloc[-1, 0]) if len(df) > 0 else "N/A"
+                    "start": str(df_clean.iloc[0, 0]) if len(df) > 0 else "N/A",
+                    "end": str(df_clean.iloc[-1, 0]) if len(df) > 0 else "N/A"
                 } if len(df) > 0 else {"start": "N/A", "end": "N/A"}
             }
         }
