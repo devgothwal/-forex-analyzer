@@ -456,29 +456,73 @@ async def upload_file(file: UploadFile = File(...)):
             }
         }
         
-        # Custom JSON serializer to handle NaN values
+        # Ultra-robust JSON serializer to handle ALL NaN cases
         def clean_for_json(obj):
             if isinstance(obj, dict):
                 return {k: clean_for_json(v) for k, v in obj.items()}
             elif isinstance(obj, list):
                 return [clean_for_json(v) for v in obj]
-            elif isinstance(obj, (np.integer, np.floating)):
-                if np.isnan(obj) or np.isinf(obj):
+            elif isinstance(obj, (np.integer, np.floating, np.number)):
+                try:
+                    if np.isnan(obj) or np.isinf(obj):
+                        return "N/A"
+                    return float(obj) if isinstance(obj, np.floating) else int(obj)
+                except:
                     return "N/A"
-                return obj.item()
-            elif pd.isna(obj) or (isinstance(obj, float) and (np.isnan(obj) or np.isinf(obj))):
+            elif isinstance(obj, (int, float)):
+                try:
+                    if np.isnan(obj) or np.isinf(obj) or pd.isna(obj):
+                        return "N/A"
+                    return obj
+                except:
+                    return "N/A"
+            elif pd.isna(obj):
                 return "N/A"
-            else:
+            elif obj is None:
+                return "N/A"
+            elif isinstance(obj, str):
+                if obj.lower() in ['nan', 'inf', '-inf', 'none', 'null']:
+                    return "N/A"
                 return obj
+            else:
+                # Convert any other type to string as fallback
+                try:
+                    return str(obj)
+                except:
+                    return "N/A"
         
         # Clean analysis data
         clean_analysis = clean_for_json(analysis)
         
-        return JSONResponse(content={
-            "success": True,
-            "message": f"File '{file.filename}' uploaded and analyzed successfully!",
-            "analysis": clean_analysis
-        })
+        # Double-check: manually serialize to JSON string first
+        try:
+            # Test JSON serialization with strict mode
+            response_data = {
+                "success": True,
+                "message": f"File '{file.filename}' uploaded and analyzed successfully!",
+                "analysis": clean_analysis
+            }
+            
+            # Force JSON serialization to catch any remaining issues
+            json_str = json.dumps(response_data, allow_nan=False, ensure_ascii=False)
+            
+            # Parse back to ensure it's valid
+            verified_data = json.loads(json_str)
+            
+            return JSONResponse(content=verified_data)
+            
+        except Exception as json_error:
+            # If JSON still fails, return a simplified response
+            return JSONResponse(content={
+                "success": False,
+                "error": f"JSON serialization error: {str(json_error)}",
+                "message": "File processed but response formatting failed",
+                "basic_stats": {
+                    "filename": file.filename,
+                    "rows": len(df),
+                    "columns": len(df.columns) if hasattr(df, 'columns') else 0
+                }
+            })
         
     except Exception as e:
         return JSONResponse(
