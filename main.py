@@ -3,10 +3,12 @@ Simple FastAPI Application for Forex Trading Analysis Platform
 Root-level simple server for easy deployment
 """
 
-from fastapi import FastAPI
+from fastapi import FastAPI, File, UploadFile, Form
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 import os
+import pandas as pd
+import io
 
 # Create FastAPI application
 app = FastAPI(
@@ -78,10 +80,84 @@ async def root():
             
             <div class="upload-section">
                 <h3>🎯 Ready to Analyze Your Trading Data?</h3>
-                <p>Your forex analyzer is ready! Upload MT5/MT4 CSV files to get started with AI-powered insights.</p>
-                <a href="/health" class="btn">❤️ Health Check</a>
-                <a href="/api/docs" class="btn">📚 API Documentation</a>
-                <a href="/api/v1/test" class="btn">🧪 Test API</a>
+                <p>Upload your MT5/MT4 CSV files to get started with AI-powered insights!</p>
+                
+                <form id="uploadForm" enctype="multipart/form-data" style="margin: 20px 0;">
+                    <div style="margin-bottom: 15px;">
+                        <input type="file" id="fileInput" name="file" accept=".csv,.xlsx,.xls" 
+                               style="padding: 10px; border: 2px dashed #3498db; border-radius: 8px; width: 100%; max-width: 400px;">
+                    </div>
+                    <button type="submit" class="btn" style="background: #27ae60;" id="uploadBtn">
+                        📊 Upload & Analyze Trading Data
+                    </button>
+                </form>
+                
+                <script>
+                document.getElementById('uploadForm').addEventListener('submit', async function(e) {
+                    e.preventDefault();
+                    
+                    const fileInput = document.getElementById('fileInput');
+                    const uploadBtn = document.getElementById('uploadBtn');
+                    const resultDiv = document.getElementById('uploadResult');
+                    
+                    if (!fileInput.files[0]) {
+                        resultDiv.innerHTML = '<div style="background: #e74c3c; color: white; padding: 10px; border-radius: 5px;">Please select a file first!</div>';
+                        resultDiv.style.display = 'block';
+                        return;
+                    }
+                    
+                    // Show loading state
+                    uploadBtn.innerHTML = '⏳ Analyzing...';
+                    uploadBtn.disabled = true;
+                    resultDiv.style.display = 'none';
+                    
+                    const formData = new FormData();
+                    formData.append('file', fileInput.files[0]);
+                    
+                    try {
+                        const response = await fetch('/api/v1/upload', {
+                            method: 'POST',
+                            body: formData
+                        });
+                        
+                        const result = await response.json();
+                        
+                        if (result.success) {
+                            resultDiv.innerHTML = `
+                                <div style="background: #27ae60; color: white; padding: 15px; border-radius: 5px; margin-bottom: 15px;">
+                                    ✅ ${result.message}
+                                </div>
+                                <div style="background: #f8f9fa; padding: 15px; border-radius: 5px; text-align: left;">
+                                    <h4>📊 Analysis Results:</h4>
+                                    <p><strong>File:</strong> ${result.analysis.filename}</p>
+                                    <p><strong>Total Rows:</strong> ${result.analysis.rows}</p>
+                                    <p><strong>Columns:</strong> ${result.analysis.columns}</p>
+                                    <p><strong>Column Names:</strong> ${result.analysis.column_names.join(', ')}</p>
+                                    <p><strong>Total Trades:</strong> ${result.analysis.summary.total_trades}</p>
+                                    <p><strong>Date Range:</strong> ${result.analysis.summary.date_range.start} to ${result.analysis.summary.date_range.end}</p>
+                                </div>
+                            `;
+                        } else {
+                            resultDiv.innerHTML = `<div style="background: #e74c3c; color: white; padding: 10px; border-radius: 5px;">${result.error}</div>`;
+                        }
+                    } catch (error) {
+                        resultDiv.innerHTML = `<div style="background: #e74c3c; color: white; padding: 10px; border-radius: 5px;">Error: ${error.message}</div>`;
+                    }
+                    
+                    // Reset button
+                    uploadBtn.innerHTML = '📊 Upload & Analyze Trading Data';
+                    uploadBtn.disabled = false;
+                    resultDiv.style.display = 'block';
+                });
+                </script>
+                
+                <div id="uploadResult" style="margin-top: 20px; padding: 15px; border-radius: 8px; display: none;"></div>
+                
+                <div style="margin-top: 20px;">
+                    <a href="/health" class="btn">❤️ Health Check</a>
+                    <a href="/docs" class="btn">📚 API Documentation</a>
+                    <a href="/api/v1/test" class="btn">🧪 Test API</a>
+                </div>
             </div>
             
             <div style="margin-top: 30px; padding: 20px; background: #e8f5e8; border-radius: 8px;">
@@ -131,14 +207,52 @@ async def test_endpoint():
     }
 
 @app.post("/api/v1/upload")
-async def upload_endpoint():
-    """Placeholder for file upload functionality"""
-    return {
-        "message": "File upload endpoint ready",
-        "supported_formats": ["CSV", "XLSX", "XLS"],
-        "platforms": ["MT5", "MT4", "cTrader"],
-        "note": "Upload your trading history files here for analysis"
-    }
+async def upload_file(file: UploadFile = File(...)):
+    """Handle file upload and basic analysis"""
+    try:
+        # Validate file type
+        if not file.filename.lower().endswith(('.csv', '.xlsx', '.xls')):
+            return JSONResponse(
+                status_code=400,
+                content={"error": "Invalid file type. Please upload CSV, XLSX, or XLS files."}
+            )
+        
+        # Read file content
+        content = await file.read()
+        
+        # Process based on file type
+        if file.filename.lower().endswith('.csv'):
+            df = pd.read_csv(io.StringIO(content.decode('utf-8')))
+        else:
+            df = pd.read_excel(io.BytesIO(content))
+        
+        # Basic analysis
+        analysis = {
+            "filename": file.filename,
+            "rows": len(df),
+            "columns": len(df.columns),
+            "column_names": df.columns.tolist(),
+            "data_preview": df.head(5).to_dict('records') if len(df) > 0 else [],
+            "summary": {
+                "total_trades": len(df),
+                "date_range": {
+                    "start": str(df.iloc[0, 0]) if len(df) > 0 else "N/A",
+                    "end": str(df.iloc[-1, 0]) if len(df) > 0 else "N/A"
+                } if len(df) > 0 else {"start": "N/A", "end": "N/A"}
+            }
+        }
+        
+        return JSONResponse(content={
+            "success": True,
+            "message": f"File '{file.filename}' uploaded and analyzed successfully!",
+            "analysis": analysis
+        })
+        
+    except Exception as e:
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"Error processing file: {str(e)}"}
+        )
 
 if __name__ == "__main__":
     import uvicorn
