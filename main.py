@@ -143,12 +143,31 @@ async def root():
                                         ${result.analysis.summary.trading_insights.has_time_column ? '✅ Time' : '❌ Time'}
                                     </p>
                                     ${result.analysis.summary.trading_stats && Object.keys(result.analysis.summary.trading_stats).length > 0 ? `
-                                    <div style="margin-top: 10px; padding: 10px; background: #e8f5e8; border-radius: 5px;">
-                                        <h5>📈 Trading Statistics:</h5>
-                                        <p><strong>Total P&L:</strong> $${result.analysis.summary.trading_stats.total_profit}</p>
-                                        <p><strong>Win Rate:</strong> ${result.analysis.summary.trading_stats.win_rate}% (${result.analysis.summary.trading_stats.winning_trades}W / ${result.analysis.summary.trading_stats.losing_trades}L)</p>
-                                        <p><strong>Avg Trade:</strong> $${result.analysis.summary.trading_stats.avg_profit}</p>
-                                        <p><strong>Best/Worst:</strong> $${result.analysis.summary.trading_stats.max_profit} / $${result.analysis.summary.trading_stats.max_loss}</p>
+                                    <div style="margin-top: 15px; padding: 15px; background: #e8f5e8; border-radius: 8px; border-left: 4px solid #27ae60;">
+                                        <h5>📈 Comprehensive Trading Analysis:</h5>
+                                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px;">
+                                            <div>
+                                                <p><strong>📊 Performance:</strong></p>
+                                                <p>• Total P&L: <span style="color: ${result.analysis.summary.trading_stats.total_profit >= 0 ? 'green' : 'red'};">$${result.analysis.summary.trading_stats.total_profit}</span></p>
+                                                <p>• Net P&L: <span style="color: ${result.analysis.summary.trading_stats.net_profit >= 0 ? 'green' : 'red'};">$${result.analysis.summary.trading_stats.net_profit}</span></p>
+                                                <p>• Win Rate: <span style="color: ${result.analysis.summary.trading_stats.win_rate >= 50 ? 'green' : 'red'};">${result.analysis.summary.trading_stats.win_rate}%</span></p>
+                                                <p>• Profit Factor: <span style="color: ${result.analysis.summary.trading_stats.profit_factor >= 1.2 ? 'green' : 'red'};">${result.analysis.summary.trading_stats.profit_factor}</span></p>
+                                            </div>
+                                            <div>
+                                                <p><strong>📋 Trade Details:</strong></p>
+                                                <p>• Total Trades: ${result.analysis.summary.trading_stats.total_trades}</p>
+                                                <p>• Winners: ${result.analysis.summary.trading_stats.winning_trades}</p>
+                                                <p>• Losers: ${result.analysis.summary.trading_stats.losing_trades}</p>
+                                                <p>• Avg Trade: $${result.analysis.summary.trading_stats.avg_profit}</p>
+                                            </div>
+                                        </div>
+                                        <div style="margin-top: 10px; padding: 8px; background: #f0f8f0; border-radius: 4px;">
+                                            <p><strong>🎯 Key Metrics:</strong></p>
+                                            <p>• Best Trade: $${result.analysis.summary.trading_stats.best_trade.profit} (${result.analysis.summary.trading_stats.best_trade.symbol})</p>
+                                            <p>• Worst Trade: $${result.analysis.summary.trading_stats.worst_trade.profit} (${result.analysis.summary.trading_stats.worst_trade.symbol})</p>
+                                            <p>• Max Drawdown: <span style="color: ${result.analysis.summary.trading_stats.max_drawdown <= 100 ? 'green' : 'red'};">$${result.analysis.summary.trading_stats.max_drawdown}</span></p>
+                                            <p>• Avg Win/Loss: $${result.analysis.summary.trading_stats.avg_win} / $${result.analysis.summary.trading_stats.avg_loss}</p>
+                                        </div>
                                     </div>
                                     ` : ''}
                                 </div>
@@ -236,45 +255,105 @@ async def upload_file(file: UploadFile = File(...)):
         # Read file content
         content = await file.read()
         
-        # Advanced MT5/MT4 file parsing
-        def parse_mt5_file(content, is_csv=True):
-            """Parse MT5/MT4 trading history with intelligent header detection"""
-            for header_row in range(0, 5):  # Try first 5 rows as potential headers
-                try:
-                    if is_csv:
-                        test_df = pd.read_csv(io.StringIO(content.decode('utf-8')), header=header_row)
+        # Advanced MT5/MT4 file parsing based on proven working code
+        def parse_mt5_excel(content):
+            """Parse MT5 Excel export using the proven method from working code"""
+            try:
+                # Read Excel file
+                df_raw = pd.read_excel(io.BytesIO(content))
+                
+                # Find "Positions" section (key indicator of MT5 format)
+                positions_idx = None
+                for idx, row in df_raw.iterrows():
+                    if 'Positions' in str(row.values) or 'Position' in str(row.values):
+                        positions_idx = idx
+                        break
+                
+                if positions_idx is None:
+                    # If no "Positions" found, try standard parsing
+                    return pd.read_excel(io.BytesIO(content), header=0), 0
+                
+                # Extract positions data
+                header_idx = positions_idx + 1
+                orders_idx = None
+                for idx in range(header_idx + 1, len(df_raw)):
+                    if 'Orders' in str(df_raw.iloc[idx].values) or 'Deals' in str(df_raw.iloc[idx].values):
+                        orders_idx = idx
+                        break
+                
+                if orders_idx:
+                    positions_data = df_raw.iloc[header_idx+1:orders_idx]
+                else:
+                    positions_data = df_raw.iloc[header_idx+1:]
+                
+                # Set column names from header row
+                column_names = df_raw.iloc[header_idx].values
+                positions_data.columns = column_names
+                
+                # Clean data and rename columns to standard format
+                df_clean = positions_data.dropna(subset=[column_names[0]]).copy()  # Drop rows without time
+                
+                # Try to map columns to standard names
+                standard_columns = []
+                for col in df_clean.columns:
+                    col_str = str(col).lower()
+                    if 'time' in col_str:
+                        standard_columns.append('time')
+                    elif 'position' in col_str or 'ticket' in col_str:
+                        standard_columns.append('position')
+                    elif 'symbol' in col_str:
+                        standard_columns.append('symbol')
+                    elif 'type' in col_str:
+                        standard_columns.append('type')
+                    elif 'volume' in col_str or 'size' in col_str:
+                        standard_columns.append('volume')
+                    elif 'price' in col_str and 'close' not in col_str:
+                        standard_columns.append('open_price')
+                    elif 's/l' in col_str or 'sl' in col_str:
+                        standard_columns.append('sl')
+                    elif 't/p' in col_str or 'tp' in col_str:
+                        standard_columns.append('tp')
+                    elif 'close' in col_str and 'time' in col_str:
+                        standard_columns.append('close_time')
+                    elif 'close' in col_str and 'price' in col_str:
+                        standard_columns.append('close_price')
+                    elif 'commission' in col_str:
+                        standard_columns.append('commission')
+                    elif 'swap' in col_str:
+                        standard_columns.append('swap')
+                    elif 'profit' in col_str:
+                        standard_columns.append('profit')
                     else:
-                        test_df = pd.read_excel(io.BytesIO(content), header=header_row)
-                    
-                    # Check if this looks like a valid MT5/MT4 header
+                        standard_columns.append(col)
+                
+                df_clean.columns = standard_columns
+                return df_clean, header_idx
+                
+            except Exception as e:
+                # Fallback to simple parsing
+                return pd.read_excel(io.BytesIO(content), header=0), 0
+        
+        def parse_csv_file(content):
+            """Parse CSV with header detection"""
+            for header_row in range(0, 5):
+                try:
+                    test_df = pd.read_csv(io.StringIO(content.decode('utf-8')), header=header_row)
+                    # Check for MT5 indicators
                     columns_lower = [str(col).lower() for col in test_df.columns]
-                    mt5_indicators = ['ticket', 'time', 'type', 'size', 'symbol', 'price', 'profit', 'balance', 'comment']
-                    
-                    # Count how many MT5 indicators we find
+                    mt5_indicators = ['ticket', 'time', 'type', 'size', 'symbol', 'price', 'profit']
                     indicator_count = sum(1 for indicator in mt5_indicators 
                                         if any(indicator in col for col in columns_lower))
-                    
-                    # If we find 3+ indicators and not too many unnamed columns, use this header
-                    unnamed_count = sum(1 for col in test_df.columns if str(col).startswith('Unnamed'))
-                    valid_ratio = (len(test_df.columns) - unnamed_count) / len(test_df.columns)
-                    
-                    if indicator_count >= 3 and valid_ratio > 0.5:
+                    if indicator_count >= 3:
                         return test_df, header_row
-                        
-                except Exception:
+                except:
                     continue
-            
-            # Fallback to default parsing
-            if is_csv:
-                return pd.read_csv(io.StringIO(content.decode('utf-8')), header=0), 0
-            else:
-                return pd.read_excel(io.BytesIO(content), header=0), 0
+            return pd.read_csv(io.StringIO(content.decode('utf-8')), header=0), 0
         
         # Process based on file type
         if file.filename.lower().endswith('.csv'):
-            df, header_used = parse_mt5_file(content, is_csv=True)
+            df, header_used = parse_csv_file(content)
         else:
-            df, header_used = parse_mt5_file(content, is_csv=False)
+            df, header_used = parse_mt5_excel(content)
         
         # Clean data for JSON serialization
         df_clean = df.fillna("N/A")  # Replace NaN with "N/A"
@@ -294,20 +373,62 @@ async def upload_file(file: UploadFile = File(...)):
             'balance': next((col for col in df.columns if 'balance' in str(col).lower()), None)
         }
         
-        # Calculate basic trading statistics if we have the right columns
+        # Calculate comprehensive trading statistics like the working MT5 analyzer
         trading_stats = {}
         if detected_columns['profit'] and detected_columns['profit'] in df.columns:
             profit_col = detected_columns['profit']
             profit_data = pd.to_numeric(df[profit_col], errors='coerce').dropna()
+            
             if len(profit_data) > 0:
+                # Basic statistics
+                winning_trades = len(profit_data[profit_data > 0])
+                losing_trades = len(profit_data[profit_data < 0])
+                total_profit = profit_data.sum()
+                
+                # Advanced metrics
+                avg_win = profit_data[profit_data > 0].mean() if winning_trades > 0 else 0
+                avg_loss = abs(profit_data[profit_data < 0].mean()) if losing_trades > 0 else 0
+                
+                # Profit factor calculation
+                total_wins = profit_data[profit_data > 0].sum()
+                total_losses = abs(profit_data[profit_data < 0].sum())
+                profit_factor = total_wins / total_losses if total_losses > 0 else total_wins
+                
+                # Risk metrics
+                if 'commission' in df.columns:
+                    commission_data = pd.to_numeric(df['commission'], errors='coerce').fillna(0)
+                    net_profit = total_profit + commission_data.sum()
+                else:
+                    net_profit = total_profit
+                
+                # Calculate max drawdown from cumulative profit
+                cumulative_profit = profit_data.cumsum()
+                running_max = cumulative_profit.cummax()
+                drawdown = cumulative_profit - running_max
+                max_drawdown = abs(drawdown.min()) if len(drawdown) > 0 else 0
+                
                 trading_stats = {
-                    'total_profit': round(profit_data.sum(), 2),
-                    'winning_trades': len(profit_data[profit_data > 0]),
-                    'losing_trades': len(profit_data[profit_data < 0]),
-                    'win_rate': round((len(profit_data[profit_data > 0]) / len(profit_data)) * 100, 1) if len(profit_data) > 0 else 0,
+                    'total_profit': round(total_profit, 2),
+                    'net_profit': round(net_profit, 2),
+                    'winning_trades': winning_trades,
+                    'losing_trades': losing_trades,
+                    'total_trades': len(profit_data),
+                    'win_rate': round((winning_trades / len(profit_data)) * 100, 1) if len(profit_data) > 0 else 0,
                     'avg_profit': round(profit_data.mean(), 2),
+                    'avg_win': round(avg_win, 2),
+                    'avg_loss': round(avg_loss, 2),
+                    'profit_factor': round(profit_factor, 2),
                     'max_profit': round(profit_data.max(), 2),
-                    'max_loss': round(profit_data.min(), 2)
+                    'max_loss': round(profit_data.min(), 2),
+                    'max_drawdown': round(max_drawdown, 2),
+                    'best_trade': {
+                        'profit': round(profit_data.max(), 2),
+                        'symbol': df.loc[profit_data.idxmax(), detected_columns['symbol']] if detected_columns['symbol'] else 'N/A'
+                    },
+                    'worst_trade': {
+                        'profit': round(profit_data.min(), 2),
+                        'symbol': df.loc[profit_data.idxmin(), detected_columns['symbol']] if detected_columns['symbol'] else 'N/A'
+                    }
                 }
         
         analysis = {
