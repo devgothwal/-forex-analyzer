@@ -8,7 +8,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
 import os
 import pandas as pd
+import numpy as np
 import io
+import json
 
 # Create FastAPI application
 app = FastAPI(
@@ -355,8 +357,8 @@ async def upload_file(file: UploadFile = File(...)):
         else:
             df, header_used = parse_mt5_excel(content)
         
-        # Clean data for JSON serialization
-        df_clean = df.fillna("N/A")  # Replace NaN with "N/A"
+        # Clean data for JSON serialization - handle all NaN/inf values
+        df_clean = df.replace([np.inf, -np.inf], "N/A").fillna("N/A")  # Replace NaN and infinity with "N/A"
         
         # Enhanced analysis with MT5/MT4 specific insights
         columns_lower = [str(col).lower() for col in df.columns]
@@ -423,11 +425,11 @@ async def upload_file(file: UploadFile = File(...)):
                     'max_drawdown': round(max_drawdown, 2),
                     'best_trade': {
                         'profit': round(profit_data.max(), 2),
-                        'symbol': df.loc[profit_data.idxmax(), detected_columns['symbol']] if detected_columns['symbol'] else 'N/A'
+                        'symbol': str(df.loc[profit_data.idxmax(), detected_columns['symbol']]) if detected_columns['symbol'] and detected_columns['symbol'] in df.columns else 'N/A'
                     },
                     'worst_trade': {
                         'profit': round(profit_data.min(), 2),
-                        'symbol': df.loc[profit_data.idxmin(), detected_columns['symbol']] if detected_columns['symbol'] else 'N/A'
+                        'symbol': str(df.loc[profit_data.idxmin(), detected_columns['symbol']]) if detected_columns['symbol'] and detected_columns['symbol'] in df.columns else 'N/A'
                     }
                 }
         
@@ -454,10 +456,28 @@ async def upload_file(file: UploadFile = File(...)):
             }
         }
         
+        # Custom JSON serializer to handle NaN values
+        def clean_for_json(obj):
+            if isinstance(obj, dict):
+                return {k: clean_for_json(v) for k, v in obj.items()}
+            elif isinstance(obj, list):
+                return [clean_for_json(v) for v in obj]
+            elif isinstance(obj, (np.integer, np.floating)):
+                if np.isnan(obj) or np.isinf(obj):
+                    return "N/A"
+                return obj.item()
+            elif pd.isna(obj) or (isinstance(obj, float) and (np.isnan(obj) or np.isinf(obj))):
+                return "N/A"
+            else:
+                return obj
+        
+        # Clean analysis data
+        clean_analysis = clean_for_json(analysis)
+        
         return JSONResponse(content={
             "success": True,
             "message": f"File '{file.filename}' uploaded and analyzed successfully!",
-            "analysis": analysis
+            "analysis": clean_analysis
         })
         
     except Exception as e:
